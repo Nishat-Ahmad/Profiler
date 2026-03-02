@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+import json
 
 import argparse
 import sys
@@ -23,6 +25,16 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.ba
 
 def train_model(data_dir, batch_size=32, epochs=5, lr=0.001, model_path="fairface_multi_task_model.pth"):
     print(f"Using device: {device}")
+
+    # History tracking
+    history = {
+        "train_loss": [],
+        "val_loss": [],
+        "train_gender_loss": [],
+        "train_age_loss": [],
+        "val_gender_loss": [],
+        "val_age_loss": []
+    }
 
     # 1. Dataset & DataLoaders
     train_csv = f"{data_dir}/fairface_label_train.csv"
@@ -49,7 +61,9 @@ def train_model(data_dir, batch_size=32, epochs=5, lr=0.001, model_path="fairfac
     # 4. Training Loop
     for epoch in range(epochs):
         model.train()
-        train_loss = 0.0
+        running_train_loss = 0.0
+        running_gender_loss = 0.0
+        running_age_loss = 0.0
         
         # tqdm for a progress bar that looks nice
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
@@ -80,14 +94,27 @@ def train_model(data_dir, batch_size=32, epochs=5, lr=0.001, model_path="fairfac
             optimizer.step()
             
             # Track training metrics
-            train_loss += loss.item()
+            running_train_loss += loss.item()
+            running_gender_loss += loss_gen.item()
+            running_age_loss += loss_age.item()
+            
             progress_bar.set_postfix({'TotLoss': loss.item(), 'GenL': loss_gen.item(), 'AgeL': loss_age.item(), 'RaceL': loss_race.item()})
             
-        print(f"Epoch {epoch+1} Average Training Loss: {train_loss / len(train_loader):.4f}")
+        avg_train_loss = running_train_loss / len(train_loader)
+        avg_gender_loss = running_gender_loss / len(train_loader)
+        avg_age_loss = running_age_loss / len(train_loader)
+        
+        history["train_loss"].append(avg_train_loss)
+        history["train_gender_loss"].append(avg_gender_loss)
+        history["train_age_loss"].append(avg_age_loss)
+        
+        print(f"Epoch {epoch+1} Av. Train Loss: {avg_train_loss:.4f} (Gender: {avg_gender_loss:.4f}, Age: {avg_age_loss:.4f})")
 
         # 5. Validation Loop
         model.eval()
-        val_loss = 0.0
+        running_val_loss = 0.0
+        val_gender_loss = 0.0
+        val_age_loss = 0.0
         with torch.no_grad():
             progress_bar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]")
             for images, targets_gender, targets_age, targets_race in progress_bar:
@@ -103,12 +130,35 @@ def train_model(data_dir, batch_size=32, epochs=5, lr=0.001, model_path="fairfac
                 loss_race = criterion_race(preds_race, targets_race)
                 
                 loss = loss_gen + loss_age + loss_race
-                val_loss += loss.item()
+                running_val_loss += loss.item()
+                val_gender_loss += loss_gen.item()
+                val_age_loss += loss_age.item()
                 
-        print(f"Epoch {epoch+1} Average Validation Loss: {val_loss / len(val_loader):.4f}")
+        avg_val_loss = running_val_loss / len(val_loader)
+        history["val_loss"].append(avg_val_loss)
+        history["val_gender_loss"].append(val_gender_loss / len(val_loader))
+        history["val_age_loss"].append(val_age_loss / len(val_loader))
+        
+        print(f"Epoch {epoch+1} Average Validation Loss: {avg_val_loss:.4f}")
         print("-" * 50)
         
     print("Training Complete!")
+    
+    # Save History and Plot
+    with open("training_history.json", "w") as f:
+        json.dump(history, f)
+        
+    plt.figure(figsize=(10, 5))
+    plt.plot(history['train_loss'], label='Train Loss')
+    plt.plot(history['val_loss'], label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('training_loss_plot.png')
+    print("Saved training plot to 'training_loss_plot.png'")
+    
     torch.save(model.state_dict(), model_path)
     print(f"Saved model weights to '{model_path}'")
 
