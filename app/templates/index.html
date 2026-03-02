@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FairFace Profiler</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>FairFace Profiler</h1>
+        
+        <div class="drop-zone" id="dropZone">
+            <span class="drop-zone__prompt">Drag & Drop image here or Click to Upload</span>
+            <input type="file" name="file" id="fileInput" accept="image/*" class="drop-zone__input">
+        </div>
+
+        <img id="preview" src="#" alt="Image Preview">
+        
+        <div class="loader" id="loader"></div>
+
+        <div class="results" id="results">
+            <div class="result-item">
+                <span class="label">Gender:</span>
+                <span class="value" id="res-gender">-</span>
+            </div>
+            <div class="result-item">
+                <span class="label">Age:</span>
+                <span class="value" id="res-age">-</span>
+            </div>
+            <div class="result-item">
+                <span class="label">Race:</span>
+                <span class="value" id="res-race">-</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        // Click to upload
+        dropZone.addEventListener('click', (e) => {
+            // Only trigger if not clicking the input itself (which shouldn't happen anyway due to display:none)
+            if (e.target !== fileInput) {
+                fileInput.click();
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+             if (fileInput.files.length) {
+                handleFile(fileInput.files[0]);
+             }
+        });
+
+        // Drag and drop events
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drop-zone--over');
+        });
+
+        ['dragleave', 'dragend'].forEach(type => {
+            dropZone.addEventListener(type, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('drop-zone--over');
+            });
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drop-zone--over');
+
+            let files = e.dataTransfer.files;
+            if (files.length) {
+                fileInput.files = files;
+                handleFile(files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            const preview = document.getElementById('preview');
+            const results = document.getElementById('results');
+            const loader = document.getElementById('loader');
+
+            // Show preview
+            const reader = new FileReader(); 
+            reader.onload = function(e) {
+                preview.style.display = 'block';
+                preview.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            // Hide previous results and show loader
+            results.style.display = 'none';
+            loader.style.display = 'block';
+
+            // Send to backend
+            uploadAndPredict(file);
+        }
+
+        async function uploadAndPredict(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('res-gender').textContent = `${data.gender} (${(data.gender_prob * 100).toFixed(1)}%)`;
+                    document.getElementById('res-age').textContent = `${data.age} years`;
+                    document.getElementById('res-race').textContent = data.race;
+                    
+                    // Display results safely
+                    document.getElementById('loader').style.display = 'none';
+                    document.getElementById('results').style.display = 'block';
+                } else {
+                    console.error('Error in prediction');
+                    alert('Failed to process image');
+                    document.getElementById('loader').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('loader').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
